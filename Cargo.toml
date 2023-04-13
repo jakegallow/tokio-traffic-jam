@@ -1,0 +1,10 @@
+[package]
+name = "tokio-traffic-jam"
+version = "0.1.0"
+edition = "2021"
+description = "A simulation to check memory usage for a large number of tokio instances"
+
+[dependencies]
+axum = "0.6.15"
+clap = { version = "4", features = ["derive"]}
+tokio = { version = "1.27", features = ["rt-multi-thread"]}
