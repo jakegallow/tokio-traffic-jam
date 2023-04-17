@@ -56,7 +56,7 @@ fn main() {
 /// The task will be an axum web server
 /// returns a vec of runtimes so nothing gets dropped
 fn start_new_runtime_instance(
-    tasks_per_instance: u33,
+    tasks_per_instance: u32,
     current_port_num: &mut u16,
     rts: &mut Vec<Runtime>,
     use_axum: bool,
