@@ -26,11 +26,10 @@ fn main() {
     println!("running simulation with this cli: {cli:?}");
     println!("========================");
 
-    let mut current_target = 1;
     'Simulation: loop {
         let mut current_port_num = 3000_u16;
         let mut rts = vec![];
-        for num_runtimes in 0..current_target {
+        for num_runtimes in 0..cli.max_tokio_instances {
             start_new_runtime_instance(
                 cli.servers_per_instance,
                 &mut current_port_num,
@@ -40,18 +39,14 @@ fn main() {
             println!("current number of active runtime: {}", num_runtimes + 1);
             if num_runtimes >= cli.max_tokio_instances {
                 // let it run for a while for profiling
-                std::thread::sleep(std::time::Duration::from_secs(60));
+                std::thread::sleep(std::time::Duration::from_secs(3));
                 println!("Simulation complete");
                 break 'Simulation;
             }
+            std::thread::sleep(std::time::Duration::from_secs(3));
         }
 
-        // let it run for a while for profiling
-        std::thread::sleep(std::time::Duration::from_secs(60));
-
-        println!("simulation complete. scaling up instances");
         println!("------------------------------------------");
-        rts.clear();
     }
 
     // just dropping everything is fine
@@ -61,7 +56,7 @@ fn main() {
 /// The task will be an axum web server
 /// returns a vec of runtimes so nothing gets dropped
 fn start_new_runtime_instance(
-    tasks_per_instance: u32,
+    tasks_per_instance: u33,
     current_port_num: &mut u16,
     rts: &mut Vec<Runtime>,
     use_axum: bool,
