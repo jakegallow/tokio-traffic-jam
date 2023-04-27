@@ -1,55 +1,68 @@
 use axum::{routing::get, Router};
-use clap::Parser;
 use std::net::SocketAddr;
 use tokio::runtime::Runtime;
 
-#[derive(Debug, Parser)]
-struct Cli {
-    /// The number of tokio instances
-    max_tokio_instances: u32,
-
-    /// the factor by which to scale up to the max_tokio_instances
-    /// so if max_tokio_instances is 1000 and the scale factor is 10
-    /// the simulation will be run as 1 rt -> 10 rt -> 100 rt 1000 rt
-    scale_factor: u8,
-
-    /// The number of axum servers per instance of tokio
-    servers_per_instance: u32,
-
-    /// true to use axum (webserver). false to just no op every second
-    /// axum seems to freak out once you start 255 servers (on linux, untested on windows)
-    use_axum: bool,
-}
-
 fn main() {
-    let cli = Cli::parse();
-    println!("running simulation with this cli: {cli:?}");
-    println!("========================");
+    let one_rt = false;
+    let single_rt;
+    let mut many_rt: Vec<Runtime> = vec![];
 
-    'Simulation: loop {
-        let mut current_port_num = 3000_u16;
-        let mut rts = vec![];
-        for num_runtimes in 0..cli.max_tokio_instances {
-            start_new_runtime_instance(
-                cli.servers_per_instance,
-                &mut current_port_num,
-                &mut rts,
-                cli.use_axum,
-            );
-            println!("current number of active runtime: {}", num_runtimes + 1);
-            if num_runtimes >= cli.max_tokio_instances {
-                // let it run for a while for profiling
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                println!("Simulation complete");
-                break 'Simulation;
-            }
-            std::thread::sleep(std::time::Duration::from_secs(3));
+    if one_rt {
+        single_rt = Runtime::new().unwrap();
+        // start up 4 good servers
+        for i in 0..4 {
+            let port: u16 = 3000 + (i as u16);
+            single_rt.spawn(async move {
+                let app = Router::new().route("/", get(root));
+                let addr = SocketAddr::from(([127, 0, 0, 1], port.clone()));
+                let server = axum::Server::bind(&addr).serve(app.into_make_service());
+                server.await.expect("could not start axum server")
+            });
+            println!("started new axum server on 127.0.0.1:{}", port);
         }
 
-        println!("------------------------------------------");
+        // set up 1 evil server
+        let port: u16 = 3000 + (13 as u16);
+        single_rt.spawn(async move {
+            let app = Router::new().route("/", get(evil_root));
+            let addr = SocketAddr::from(([127, 0, 0, 1], port.clone()));
+            let server = axum::Server::bind(&addr).serve(app.into_make_service());
+            server.await.expect("could not start axum server")
+        });
+        println!("started new axum server on 127.0.0.1:{}", port);
+
+    } else {
+        // start up 4 good servers
+        for i in 0..4 {
+            let rt = Runtime::new().unwrap();
+            let port: u16 = 3000 + (i as u16);
+            rt.spawn(async move {
+                let app = Router::new().route("/", get(root));
+                let addr = SocketAddr::from(([127, 0, 0, 1], port.clone()));
+                let server = axum::Server::bind(&addr).serve(app.into_make_service());
+                server.await.expect("could not start axum server")
+            });
+            println!("started new axum server on 127.0.0.1:{}", port);
+            many_rt.push(rt);
+        }
+        let evil_rt = Runtime::new().unwrap();
+        // set up 1 evil server
+        let port: u16 = 3000 + (13 as u16);
+        evil_rt.spawn(async move {
+            let app = Router::new().route("/", get(evil_root));
+            let addr = SocketAddr::from(([127, 0, 0, 1], port.clone()));
+            let server = axum::Server::bind(&addr).serve(app.into_make_service());
+            server.await.expect("could not start axum server")
+        });
+        println!("started new axum server on 127.0.0.1:{}", port);
+        many_rt.push(evil_rt);
     }
 
-    // just dropping everything is fine
+    loop {} // just loop until ctrl + c
+    //single_rt.shutdown_background();
+    for rt in many_rt {
+        rt.shutdown_background();
+    }
 }
 
 /// Start a new tokio runtime running inst_info.tasks number of tasks
@@ -75,9 +88,7 @@ fn start_new_runtime_instance(
 
             println!("started new axum server on 127.0.0.1:{}", *current_port_num);
             *current_port_num += 1;
-        } else {
-            rt.spawn(async { something_useless().await });
-        }
+        } 
     }
     rts.push(rt);
 }
@@ -87,12 +98,8 @@ async fn root() -> &'static str {
     "Hello, World!"
 }
 
-async fn something_useless() {
-    let mut num = 0;
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        // not sure if this gets optimized away by compiler so just print nothing to force an op.
-        num += 1;
-        print!("");
-    }
+// basic handler that responds with a static string
+async fn evil_root() -> &'static str {
+    std::thread::sleep(std::time::Duration::from_secs(30));
+    "Hello, World!"
 }
